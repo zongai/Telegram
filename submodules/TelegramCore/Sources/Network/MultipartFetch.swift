@@ -573,22 +573,23 @@ private final class MultipartFetchManager {
         }
         
         if isStory {
-            self.defaultPartSize = 512 * 1024
+            self.defaultPartSize = MultipartDownloadConfig.largePartSize
             if let size = size, size > self.defaultPartSize {
-                self.parallelParts = 4
+                self.parallelParts = MultipartDownloadConfig.multiThreadEnabled ? min(8, MultipartDownloadConfig.maxParallelParts) : 4
             } else {
                 self.parallelParts = 1
             }
         } else if let size = size {
             if size <= 512 * 1024 {
-                self.defaultPartSize = 16 * 1024
-                self.parallelParts = 4 * 4
+                self.defaultPartSize = MultipartDownloadConfig.smallPartSize
+                self.parallelParts = MultipartDownloadConfig.multiThreadEnabled ? MultipartDownloadConfig.smallFileParallelParts : 4
             } else {
-                self.defaultPartSize = 512 * 1024
-                self.parallelParts = 8
+                self.defaultPartSize = MultipartDownloadConfig.largePartSize
+                // 多线程：大文件并行分片数提高
+                self.parallelParts = MultipartDownloadConfig.multiThreadEnabled ? MultipartDownloadConfig.maxParallelParts : 8
             }
         } else {
-            self.parallelParts = 1
+            self.parallelParts = MultipartDownloadConfig.multiThreadEnabled ? 4 : 1
             self.defaultPartSize = 128 * 1024
         }
         

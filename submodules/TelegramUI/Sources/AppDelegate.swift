@@ -2157,6 +2157,40 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         
         self.maybeCheckForUpdates()
         
+        // 多线程下载配置 + 自动清理缓存
+        if let authorized = self.contextValue {
+            let account = authorized.context.account
+            let accountManager = authorized.context.sharedContext.accountManager
+            AutoCacheCleanup.maybeRun(
+                accountManager: accountManager,
+                postbox: account.postbox,
+                tempPaths: [account.postbox.mediaBox.basePath],
+                collectAndClear: { settings in
+                    return authorized.context.engine.resources.collectCacheUsageStats(additionalCachePaths: [], logFilesPath: nil)
+                    |> take(1)
+                    |> mapToSignal { result -> Signal<Void, NoError> in
+                        var ids = Set<MediaResourceId>()
+                        if case let .result(stats) = result {
+                            let total = stats.cacheSize + stats.otherSize + stats.tempSize
+                            let maxBytes: Int64 = settings.maxCacheMB > 0 ? Int64(settings.maxCacheMB) * 1024 * 1024 : 0
+                            let overLimit = maxBytes > 0 && total > maxBytes
+                            if overLimit || settings.keepDays > 0 {
+                                for (_, resources) in stats.mediaResourceIds {
+                                    for id in resources { ids.insert(id) }
+                                }
+                            }
+                        }
+                        if ids.isEmpty {
+                            return .complete()
+                        }
+                        return authorized.context.engine.resources.clearCachedMediaResources(
+                            mediaResourceIds: Set(ids.map { EngineMediaResource.Id($0.stringRepresentation) })
+                        ) |> map { _ in }
+                    }
+                }
+            )
+        }
+        
         SharedDisplayLinkDriver.shared.updateForegroundState(self.isActiveValue)
         
         func cancelWindowPanGestures(view: UIView) {
