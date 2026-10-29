@@ -44,3 +44,16 @@ AutoTranslator.shared.deepLAPIKey = "your-key:fx"
 
 本模块为纯 Swift 源文件，可直接加入 Xcode / Bazel 目标。  
 与 Telegram 内置翻译可并存：对消息气泡等场景调用 `translateIfNeeded` 即可。
+
+## 设置页入口
+
+路径：**设置 → 语言 → 自动翻译**
+
+- 在「翻译消息」区域新增 **自动翻译** 项
+- 进入后可配置：
+  - 开关：自动翻译非目标语言
+  - 目标语言
+  - 引擎链（Google / Azure / Yandex / Lingva / MyMemory / DeepL / Microsoft / AI）
+  - DeepL / Microsoft API Key
+
+配置写入 `TranslationSettings`（`ApplicationSpecificSharedDataKeys.translationSettings`），并通过 `AutoTranslateSettingsBridge` 同步到 `AutoTranslator.shared`。
