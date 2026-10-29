@@ -6,6 +6,7 @@ import TelegramCore
 import Display
 import UniversalMediaPlayer
 import TelegramPresentationData
+import TelegramStringFormatting
 import RangeSet
 import ShimmerEffect
 import TelegramUniversalVideoContent
@@ -315,7 +316,7 @@ final class ChatVideoGalleryItemScrubberView: UIView {
                             case .Remote:
                                 text = dataSizeString(fileSize, forceDecimal: true, formatting: formatting)
                             case let .Fetching(_, progress):
-                                text = strings.DownloadingStatus(dataSizeString(Int64(Float(fileSize) * progress), forceDecimal: true, formatting: formatting), dataSizeString(fileSize, forceDecimal: true, formatting: formatting)).string
+                                text = progressStringWithSpeed(key: "gallery-\(fileSize)", progress: progress, total: fileSize, formatting: formatting)
                             default:
                                 text = ""
                         }

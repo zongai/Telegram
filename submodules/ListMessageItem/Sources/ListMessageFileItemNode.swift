@@ -1574,7 +1574,7 @@ public final class ListMessageFileItemNode: ListMessageNode {
             switch maybeFetchStatus {
             case .Fetching(_, let progress), .Paused(let progress):
                 if let file = self.currentMedia as? TelegramMediaFile, let size = file.size {
-                    downloadingString = "\(dataSizeString(Int(Float(size) * progress), forceDecimal: true, formatting: DataSizeStringFormatting(chatPresentationData: item.presentationData))) / \(dataSizeString(size, forceDecimal: true, formatting: DataSizeStringFormatting(chatPresentationData: item.presentationData)))"
+                    downloadingString = progressStringWithSpeed(key: "list-\(item.message.id)", progress: progress, total: Int64(size), formatting: DataSizeStringFormatting(chatPresentationData: item.presentationData))
                 }
                 descriptionOffset = 14.0
             case .Remote:

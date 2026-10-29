@@ -2810,7 +2810,7 @@ public final class ChatMessageInteractiveMediaNode: ASDisplayNode, GalleryItemTr
                                 if NativeVideoContent.isHLSVideo(file: file) {
                                     sizeString = "\(Int(progress * 100.0))%"
                                 } else {
-                                    sizeString = "\(dataSizeString(Int(Float(size) * progress), forceDecimal: true, formatting: formatting)) / \(dataSizeString(size, forceDecimal: true, formatting: formatting))"
+                                    sizeString = progressStringWithSpeed(key: "media-\(message.id)", progress: progress, total: Int64(size), formatting: formatting)
                                 }
                                 if let duration = file.duration, !message.flags.contains(.Unsent) {
                                     let durationString = file.isAnimated ? gifTitle : stringForDuration(playerDuration > 0 ? playerDuration : Int32(duration), position: playerPosition)
@@ -2831,7 +2831,7 @@ public final class ChatMessageInteractiveMediaNode: ASDisplayNode, GalleryItemTr
                                         state = automaticPlayback ? .none : state
                                     }
                                 } else {
-                                    badgeContent = .mediaDownload(backgroundColor: messageTheme.mediaDateAndStatusFillColor, foregroundColor: messageTheme.mediaDateAndStatusTextColor, duration: "\(dataSizeString(Int(Float(size) * progress), forceDecimal: true, formatting: formatting)) / \(dataSizeString(size, forceDecimal: true, formatting: formatting))", size: nil, muted: false, active: false)
+                                    badgeContent = .mediaDownload(backgroundColor: messageTheme.mediaDateAndStatusFillColor, foregroundColor: messageTheme.mediaDateAndStatusTextColor, duration: progressStringWithSpeed(key: "media-\(message.id)", progress: progress, total: Int64(size), formatting: formatting), size: nil, muted: false, active: false)
                                 }
                             } else if let _ = file.duration {
                                 if file.isAnimated {
@@ -2845,7 +2845,7 @@ public final class ChatMessageInteractiveMediaNode: ASDisplayNode, GalleryItemTr
                             }
                         } else {
                             if isMediaStreamable(message: EngineMessage(message), media: file), let fileSize = file.size, fileSize > 0 && fileSize != .max {
-                                let sizeString = "\(dataSizeString(Int64(Float(fileSize) * progress), forceDecimal: true, formatting: formatting)) / \(dataSizeString(fileSize, forceDecimal: true, formatting: formatting))"
+                                let sizeString = progressStringWithSpeed(key: "media-\(message.id)", progress: progress, total: fileSize, formatting: formatting)
                                 
                                 if message.flags.contains(.Unsent), let duration = file.duration {
                                     let durationString = stringForDuration(playerDuration > 0 ? playerDuration : Int32(duration), position: playerPosition)
@@ -2873,7 +2873,7 @@ public final class ChatMessageInteractiveMediaNode: ASDisplayNode, GalleryItemTr
                                     let durationString = stringForDuration(playerDuration > 0 ? playerDuration : Int32(duration), position: playerPosition)
                                     
                                     if automaticPlayback, let fileSize = file.size, fileSize > 0 && fileSize != .max {
-                                        let sizeString = "\(dataSizeString(Int64(Float(fileSize) * progress), forceDecimal: true, formatting: formatting)) / \(dataSizeString(fileSize, forceDecimal: true, formatting: formatting))"
+                                        let sizeString = progressStringWithSpeed(key: "media-\(message.id)", progress: progress, total: fileSize, formatting: formatting)
                                         mediaDownloadState = .fetching(progress: progress)
                                         badgeContent = .mediaDownload(backgroundColor: messageTheme.mediaDateAndStatusFillColor, foregroundColor: messageTheme.mediaDateAndStatusTextColor, duration: durationString, size: active ? sizeString : nil, muted: muted, active: active)
                                     } else {
