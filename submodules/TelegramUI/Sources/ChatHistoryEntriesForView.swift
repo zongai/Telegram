@@ -6,6 +6,7 @@ import TemporaryCachedPeerDataManager
 import Emoji
 import AccountContext
 import TelegramPresentationData
+import TelegramUIPreferences
 import ChatHistoryEntry
 import ChatMessageItemCommon
 import TextFormat
@@ -60,7 +61,8 @@ func chatHistoryEntriesForView(
     adMessage: Message?,
     dynamicAdMessages: [Message],
     isMusicPlaylist: Bool,
-    pinToTopStableId: EngineMessage.StableId?
+    pinToTopStableId: EngineMessage.StableId?,
+    contentFilter: ContentFilterSettings? = nil
 ) -> ([ChatHistoryEntry], ChatHistoryEntriesForViewState) {
     var currentState = currentState
     
@@ -151,6 +153,11 @@ func chatHistoryEntriesForView(
         }
         
         if pendingRemovedMessages.contains(message.id) {
+            continue
+        }
+        
+        // 内容过滤：黑名单关键词（白名单优先）
+        if let contentFilter, contentFilter.shouldHide(text: message.text) {
             continue
         }
         
@@ -695,7 +702,8 @@ func chatHistoryEntriesForView(
         }
 
         if view.laterId == nil && !view.isLoading {
-            if !entries.isEmpty, case let .MessageEntry(lastMessage, _, _, _, _, _) = entries[entries.count - 1], let message = adMessage {
+            let effectiveAdMessage: Message? = (contentFilter?.hideAds == true) ? nil : adMessage
+            if !entries.isEmpty, case let .MessageEntry(lastMessage, _, _, _, _, _) = entries[entries.count - 1], let message = effectiveAdMessage {
                 var nextAdMessageId: Int32 = 10000
                 let updatedMessage = Message(
                     stableId: ChatHistoryListNodeImpl.fixedAdMessageStableId,

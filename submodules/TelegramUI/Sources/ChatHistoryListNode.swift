@@ -816,6 +816,9 @@ public final class ChatHistoryListNodeImpl: ASDisplayNode, ChatHistoryNode, Chat
     private var remainingDynamicAdMessageInterval: Int?
     private var remainingDynamicAdMessageDistance: CGFloat?
     private var nextPendingDynamicMessageId: Int32 = 1
+    private var contentFilterSettingsCache: ContentFilterSettings = ContentFilterSettings.defaultSettings
+    private var contentFilterSettingsDisposable: Disposable?
+    
     private var allAdMessages: (fixed: Message?, opportunistic: [Message], version: Int) = (nil, [], 0) {
         didSet {
             self.allAdMessagesPromise.set(.single(self.allAdMessages))
@@ -1071,6 +1074,12 @@ public final class ChatHistoryListNodeImpl: ASDisplayNode, ChatHistoryNode, Chat
         }
 
         self.beginAdMessageManagement(adMessages: adMessages)
+        
+        self.contentFilterSettingsDisposable = (context.sharedContext.accountManager.sharedData(keys: [ApplicationSpecificSharedDataKeys.contentFilterSettings])
+        |> deliverOnMainQueue).startStrict(next: { [weak self] sharedData in
+            self?.contentFilterSettingsCache = sharedData.entries[ApplicationSpecificSharedDataKeys.contentFilterSettings]?.get(ContentFilterSettings.self)
+                ?? ContentFilterSettings.defaultSettings
+        })
         
         self.listView.accessibilityPageScrolledString = { [weak self] row, count in
             if let strongSelf = self {
@@ -1436,6 +1445,7 @@ public final class ChatHistoryListNodeImpl: ASDisplayNode, ChatHistoryNode, Chat
         self.refreshDisplayedItemRangeTimer?.invalidate()
         self.genericReactionEffectDisposable?.dispose()
         self.adMessagesDisposable?.dispose()
+        self.contentFilterSettingsDisposable?.dispose()
         self.presentationDataDisposable?.dispose()
         self.messageReadMetricsTrackerPendingMetricTimer?.invalidate()
         self.messageReadMetricsTrackerDisposable?.dispose()
@@ -1472,7 +1482,25 @@ public final class ChatHistoryListNodeImpl: ASDisplayNode, ChatHistoryNode, Chat
     }
     
     private func beginAdMessageManagement(adMessages: Signal<(interPostInterval: Int32?, messages: [Message], startDelay: Int32?, betweenDelay: Int32?), NoError>) {
-        self.adMessagesDisposable = (adMessages
+        // 内容过滤：自动隐藏广告
+        let filteredAdMessages = combineLatest(
+            adMessages,
+            self.context.sharedContext.accountManager.sharedData(keys: [ApplicationSpecificSharedDataKeys.contentFilterSettings])
+            |> map { sharedData -> Bool in
+                let s = sharedData.entries[ApplicationSpecificSharedDataKeys.contentFilterSettings]?.get(ContentFilterSettings.self)
+                    ?? ContentFilterSettings.defaultSettings
+                return s.hideAds
+            }
+        )
+        |> map { ads, hideAds -> (Int32?, [Message], Int32?, Int32?) in
+            let (interPostInterval, messages, startDelay, betweenDelay) = ads
+            if hideAds {
+                return (nil, [], nil, nil)
+            }
+            return (interPostInterval, messages, startDelay, betweenDelay)
+        }
+        
+        self.adMessagesDisposable = (filteredAdMessages
         |> deliverOnMainQueue).startStrict(next: { [weak self] interPostInterval, messages, _, _ in
             guard let self else {
                 return
@@ -2397,7 +2425,8 @@ public final class ChatHistoryListNodeImpl: ASDisplayNode, ChatHistoryNode, Chat
                     adMessage: allAdMessages.fixed,
                     dynamicAdMessages: allAdMessages.opportunistic,
                     isMusicPlaylist: isMusicPlaylist,
-                    pinToTopStableId: pinToTopStableId
+                    pinToTopStableId: pinToTopStableId,
+                    contentFilter: strongSelf.contentFilterSettingsCache
                 )
                 let lastHeaderId = filteredEntries.last.flatMap { listMessageDateHeaderId(timestamp: $0.index.timestamp) } ?? 0
                 let processedView = ChatHistoryView(originalView: view, filteredEntries: filteredEntries, associatedData: associatedData, lastHeaderId: lastHeaderId, id: id, locationInput: update.2, ignoreMessagesInTimestampRange: update.3, ignoreMessageIds: update.4)

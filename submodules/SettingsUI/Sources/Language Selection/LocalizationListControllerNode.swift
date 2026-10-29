@@ -41,6 +41,7 @@ private enum LanguageListEntry: Comparable, Identifiable {
     case translateEntire(text: String, value: Bool, locked: Bool)
     case doNotTranslate(text: String, value: String)
     case autoTranslate(text: String, value: String)
+    case contentFilter(text: String, value: String)
     case translateInfo(text: String)
     
     case localizationTitle(text: String, section: ItemListSectionId)
@@ -58,8 +59,10 @@ private enum LanguageListEntry: Comparable, Identifiable {
                 return .translate(3)
             case .autoTranslate:
                 return .translate(4)
-            case .translateInfo:
+            case .contentFilter:
                 return .translate(5)
+            case .translateInfo:
+                return .translate(6)
             case .localizationTitle:
                 return .localizationTitle
             case let .localization(index, info, _, _, _, _, _):
@@ -92,7 +95,7 @@ private enum LanguageListEntry: Comparable, Identifiable {
        return lhs.index() < rhs.index()
     }
     
-    func item(presentationData: PresentationData, searchMode: Bool, openSearch: @escaping () -> Void, toggleShowTranslate: @escaping (Bool) -> Void, toggleTranslateChats: @escaping (Bool) -> Void, openDoNotTranslate: @escaping () -> Void, openAutoTranslate: @escaping () -> Void, selectLocalization: @escaping (LocalizationInfo) -> Void, setItemWithRevealedOptions: @escaping (String?, String?) -> Void, removeItem: @escaping (String) -> Void, showPremiumInfo: @escaping () -> Void) -> ListViewItem {
+    func item(presentationData: PresentationData, searchMode: Bool, openSearch: @escaping () -> Void, toggleShowTranslate: @escaping (Bool) -> Void, toggleTranslateChats: @escaping (Bool) -> Void, openDoNotTranslate: @escaping () -> Void, openAutoTranslate: @escaping () -> Void, openContentFilter: @escaping () -> Void, selectLocalization: @escaping (LocalizationInfo) -> Void, setItemWithRevealedOptions: @escaping (String?, String?) -> Void, removeItem: @escaping (String) -> Void, showPremiumInfo: @escaping () -> Void) -> ListViewItem {
         switch self {
             case let .translateTitle(text):
                 return ItemListSectionHeaderItem(presentationData: ItemListPresentationData(presentationData), text: text, sectionId: LanguageListSection.translate.rawValue)
@@ -115,6 +118,10 @@ private enum LanguageListEntry: Comparable, Identifiable {
             case let .autoTranslate(text, value):
                 return ItemListDisclosureItem(presentationData: ItemListPresentationData(presentationData), systemStyle: .glass, title: text, label: value, sectionId: LanguageListSection.translate.rawValue, style: .blocks, action: {
                     openAutoTranslate()
+                })
+            case let .contentFilter(text, value):
+                return ItemListDisclosureItem(presentationData: ItemListPresentationData(presentationData), systemStyle: .glass, title: text, label: value, sectionId: LanguageListSection.translate.rawValue, style: .blocks, action: {
+                    openContentFilter()
                 })
             case let .translateInfo(text):
                 return ItemListTextItem(presentationData: ItemListPresentationData(presentationData), text: .plain(text), sectionId: LanguageListSection.translate.rawValue)
@@ -141,8 +148,8 @@ private func preparedLanguageListSearchContainerTransition(presentationData: Pre
     let (deleteIndices, indicesAndItems, updateIndices) = mergeListsStableWithUpdates(leftList: fromEntries, rightList: toEntries, allUpdated: forceUpdate)
     
     let deletions = deleteIndices.map { ListViewDeleteItem(index: $0, directionHint: nil) }
-    let insertions = indicesAndItems.map { ListViewInsertItem(index: $0.0, previousIndex: $0.2, item: $0.1.item(presentationData: presentationData, searchMode: true, openSearch: {}, toggleShowTranslate: { _ in }, toggleTranslateChats: { _ in }, openDoNotTranslate: {}, openAutoTranslate: {}, selectLocalization: selectLocalization, setItemWithRevealedOptions: { _, _ in }, removeItem: { _ in }, showPremiumInfo: {}), directionHint: nil) }
-    let updates = updateIndices.map { ListViewUpdateItem(index: $0.0, previousIndex: $0.2, item: $0.1.item(presentationData: presentationData, searchMode: true, openSearch: {}, toggleShowTranslate: { _ in }, toggleTranslateChats: { _ in }, openDoNotTranslate: {}, openAutoTranslate: {}, selectLocalization: selectLocalization, setItemWithRevealedOptions: { _, _ in }, removeItem: { _ in }, showPremiumInfo: {}), directionHint: nil) }
+    let insertions = indicesAndItems.map { ListViewInsertItem(index: $0.0, previousIndex: $0.2, item: $0.1.item(presentationData: presentationData, searchMode: true, openSearch: {}, toggleShowTranslate: { _ in }, toggleTranslateChats: { _ in }, openDoNotTranslate: {}, openAutoTranslate: {}, openContentFilter: {}, selectLocalization: selectLocalization, setItemWithRevealedOptions: { _, _ in }, removeItem: { _ in }, showPremiumInfo: {}), directionHint: nil) }
+    let updates = updateIndices.map { ListViewUpdateItem(index: $0.0, previousIndex: $0.2, item: $0.1.item(presentationData: presentationData, searchMode: true, openSearch: {}, toggleShowTranslate: { _ in }, toggleTranslateChats: { _ in }, openDoNotTranslate: {}, openAutoTranslate: {}, openContentFilter: {}, selectLocalization: selectLocalization, setItemWithRevealedOptions: { _, _ in }, removeItem: { _ in }, showPremiumInfo: {}), directionHint: nil) }
     
     return LocalizationListSearchContainerTransition(deletions: deletions, insertions: insertions, updates: updates, isSearching: isSearching)
 }
@@ -332,12 +339,12 @@ private struct LanguageListNodeTransition {
     let crossfade: Bool
 }
 
-private func preparedLanguageListNodeTransition(presentationData: PresentationData, from fromEntries: [LanguageListEntry], to toEntries: [LanguageListEntry], openSearch: @escaping () -> Void, toggleShowTranslate: @escaping (Bool) -> Void, toggleTranslateChats: @escaping (Bool) -> Void, openDoNotTranslate: @escaping () -> Void, openAutoTranslate: @escaping () -> Void, selectLocalization: @escaping (LocalizationInfo) -> Void, setItemWithRevealedOptions: @escaping (String?, String?) -> Void, removeItem: @escaping (String) -> Void, showPremiumInfo: @escaping () -> Void, firstTime: Bool, isLoading: Bool, forceUpdate: Bool, animated: Bool, crossfade: Bool) -> LanguageListNodeTransition {
+private func preparedLanguageListNodeTransition(presentationData: PresentationData, from fromEntries: [LanguageListEntry], to toEntries: [LanguageListEntry], openSearch: @escaping () -> Void, toggleShowTranslate: @escaping (Bool) -> Void, toggleTranslateChats: @escaping (Bool) -> Void, openDoNotTranslate: @escaping () -> Void, openAutoTranslate: @escaping () -> Void, openContentFilter: @escaping () -> Void, selectLocalization: @escaping (LocalizationInfo) -> Void, setItemWithRevealedOptions: @escaping (String?, String?) -> Void, removeItem: @escaping (String) -> Void, showPremiumInfo: @escaping () -> Void, firstTime: Bool, isLoading: Bool, forceUpdate: Bool, animated: Bool, crossfade: Bool) -> LanguageListNodeTransition {
     let (deleteIndices, indicesAndItems, updateIndices) = mergeListsStableWithUpdates(leftList: fromEntries, rightList: toEntries, allUpdated: forceUpdate)
     
     let deletions = deleteIndices.map { ListViewDeleteItem(index: $0, directionHint: nil) }
-    let insertions = indicesAndItems.map { ListViewInsertItem(index: $0.0, previousIndex: $0.2, item: $0.1.item(presentationData: presentationData, searchMode: false, openSearch: openSearch, toggleShowTranslate: toggleShowTranslate, toggleTranslateChats: toggleTranslateChats, openDoNotTranslate: openDoNotTranslate, openAutoTranslate: openAutoTranslate, selectLocalization: selectLocalization, setItemWithRevealedOptions: setItemWithRevealedOptions, removeItem: removeItem, showPremiumInfo: showPremiumInfo), directionHint: nil) }
-    let updates = updateIndices.map { ListViewUpdateItem(index: $0.0, previousIndex: $0.2, item: $0.1.item(presentationData: presentationData, searchMode: false, openSearch: openSearch, toggleShowTranslate: toggleShowTranslate, toggleTranslateChats: toggleTranslateChats, openDoNotTranslate: openDoNotTranslate, openAutoTranslate: openAutoTranslate, selectLocalization: selectLocalization, setItemWithRevealedOptions: setItemWithRevealedOptions, removeItem: removeItem, showPremiumInfo: showPremiumInfo), directionHint: nil) }
+    let insertions = indicesAndItems.map { ListViewInsertItem(index: $0.0, previousIndex: $0.2, item: $0.1.item(presentationData: presentationData, searchMode: false, openSearch: openSearch, toggleShowTranslate: toggleShowTranslate, toggleTranslateChats: toggleTranslateChats, openDoNotTranslate: openDoNotTranslate, openAutoTranslate: openAutoTranslate, openContentFilter: openContentFilter, selectLocalization: selectLocalization, setItemWithRevealedOptions: setItemWithRevealedOptions, removeItem: removeItem, showPremiumInfo: showPremiumInfo), directionHint: nil) }
+    let updates = updateIndices.map { ListViewUpdateItem(index: $0.0, previousIndex: $0.2, item: $0.1.item(presentationData: presentationData, searchMode: false, openSearch: openSearch, toggleShowTranslate: toggleShowTranslate, toggleTranslateChats: toggleTranslateChats, openDoNotTranslate: openDoNotTranslate, openAutoTranslate: openAutoTranslate, openContentFilter: openContentFilter, selectLocalization: selectLocalization, setItemWithRevealedOptions: setItemWithRevealedOptions, removeItem: removeItem, showPremiumInfo: showPremiumInfo), directionHint: nil) }
     
     return LanguageListNodeTransition(deletions: deletions, insertions: insertions, updates: updates, firstTime: firstTime, isLoading: isLoading, animated: animated, crossfade: crossfade)
 }
@@ -476,7 +483,7 @@ final class LocalizationListControllerNode: ViewControllerTracingNode {
             queue: .mainQueue(),
             context.engine.data.subscribe(TelegramEngine.EngineData.Item.Configuration.LocalizationList()),
             context.engine.data.subscribe(TelegramEngine.EngineData.Item.Peer.Peer(id: context.account.peerId)),
-            context.sharedContext.accountManager.sharedData(keys: [SharedDataKeys.localizationSettings, ApplicationSpecificSharedDataKeys.translationSettings]),
+            context.sharedContext.accountManager.sharedData(keys: [SharedDataKeys.localizationSettings, ApplicationSpecificSharedDataKeys.translationSettings, ApplicationSpecificSharedDataKeys.contentFilterSettings]),
             self.presentationDataValue.get(),
             self.applyingCode.get(),
             revealedCode.get(),
