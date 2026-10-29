@@ -139,6 +139,21 @@ public func updateChatTranslationStateInteractively(engine: TelegramEngine, peer
 private let languageRecognizer = NLLanguageRecognizer()
 
 public func translateMessageIds(context: AccountContext, messageIds: [EngineMessage.Id], fromLang: String?, toLang: String) -> Signal<Never, NoError> {
+    // 优先：设置中开启「自动翻译非目标语言」时，走 Harbor 引擎链写本地 TranslationMessageAttribute
+    return context.sharedContext.accountManager.sharedData(keys: [ApplicationSpecificSharedDataKeys.translationSettings])
+    |> take(1)
+    |> mapToSignal { sharedData -> Signal<Never, NoError> in
+        let settings = sharedData.entries[ApplicationSpecificSharedDataKeys.translationSettings]?.get(TranslationSettings.self)
+            ?? TranslationSettings.defaultSettings
+        if settings.autoTranslateNonTarget {
+            // toLang 与气泡展示一致；引擎目标语言由 settings 同步到 AutoTranslator
+            return MessageAutoTranslate.translateAndApply(context: context, messageIds: messageIds, toLang: toLang)
+        }
+        return translateMessageIdsViaServer(context: context, messageIds: messageIds, fromLang: fromLang, toLang: toLang)
+    }
+}
+
+private func translateMessageIdsViaServer(context: AccountContext, messageIds: [EngineMessage.Id], fromLang: String?, toLang: String) -> Signal<Never, NoError> {
     return context.account.postbox.transaction { transaction -> Signal<Never, NoError> in
         var messageIdsToTranslate: [EngineMessage.Id] = []
         var messageIdsSet = Set<EngineMessage.Id>()
@@ -234,7 +249,8 @@ public func chatTranslationState(context: AccountContext, peerId: EnginePeer.Id,
             context.engine.data.subscribe(TelegramEngine.EngineData.Item.Peer.AutoTranslateEnabled(id: peerId))
         )
         |> mapToSignal { settings, autoTranslateEnabled in
-            if !settings.translateChats && !autoTranslateEnabled {
+            // 官方「翻译聊天」或本模块「自动翻译非目标语言」任一开启即可驱动消息级翻译
+            if !settings.translateChats && !autoTranslateEnabled && !settings.autoTranslateNonTarget {
                 return .single(nil)
             }
             
@@ -347,7 +363,10 @@ public func chatTranslationState(context: AccountContext, peerId: EnginePeer.Id,
                             }
                             
                             let isEnabled: Bool
-                            if let currentIsEnabled = cached?.isEnabled {
+                            if settings.autoTranslateNonTarget {
+                                // 本模块自动翻译：默认对聊天启用消息级翻译
+                                isEnabled = true
+                            } else if let currentIsEnabled = cached?.isEnabled {
                                 isEnabled = currentIsEnabled
                             } else if autoTranslateEnabled {
                                 isEnabled = true

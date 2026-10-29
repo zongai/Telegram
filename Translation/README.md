@@ -57,3 +57,16 @@ AutoTranslator.shared.deepLAPIKey = "your-key:fx"
   - DeepL / Microsoft API Key
 
 配置写入 `TranslationSettings`（`ApplicationSpecificSharedDataKeys.translationSettings`），并通过 `AutoTranslateSettingsBridge` 同步到 `AutoTranslator.shared`。
+
+## 消息级自动翻译
+
+开启 **设置 → 语言 → 自动翻译** 后：
+
+1. `chatTranslationState` 将 `isEnabled = true`（无需 Premium）
+2. `ChatHistoryListNode` 对可见消息收集待译 ID
+3. `translateMessageIds` 走 `MessageAutoTranslate`：
+   - 用 `AutoTranslator.translateIfNeeded`（跳过已是目标语言的文本）
+   - 写入 `TranslationMessageAttribute(toLang:)`
+4. 气泡 `ChatMessageTextBubbleContentNode` 在 `attribute.toLang` 匹配时展示译文
+
+实现文件：`submodules/TranslateUI/Sources/MessageAutoTranslate.swift`
