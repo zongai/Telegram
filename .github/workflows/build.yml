@@ -1,53 +1,97 @@
-name: CI
+name: Build IPA
 
 on:
   push:
-    branches: [ master ]
-
+    branches: [ main, master ]
   workflow_dispatch:
+    inputs:
+      commit:
+        description: 'Commit SHA to build (empty = HEAD of selected branch)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-ipa-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: macos-13
-
     steps:
-      - uses: actions/checkout@v2
+      - name: Resolve commit
+        id: ref
+        run: |
+          SHA="${{ github.event.inputs.commit }}"
+          SHA="$(echo "$SHA" | tr -d '[:space:]')"
+          if [ -z "$SHA" ]; then
+            SHA="${{ github.sha }}"
+          fi
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "Building SHA: ${SHA}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          submodules: 'recursive'
-          fetch-depth: '0'
+          ref: ${{ steps.ref.outputs.sha }}
+          submodules: recursive
+          fetch-depth: 0
 
       - name: Set active Xcode path
         run: |
-          XCODE_VERSION=$(cat versions.json | python3 -c 'import json,sys;obj=json.load(sys.stdin);print(obj["xcode"]);')
-          sudo xcode-select -s /Applications/Xcode_$XCODE_VERSION.app/Contents/Developer
+          XCODE_VERSION=$(python3 -c 'import json; print(json.load(open("versions.json"))["xcode"])')
+          echo "Xcode from versions.json: $XCODE_VERSION"
+          if [ -d "/Applications/Xcode_${XCODE_VERSION}.app" ]; then
+            sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app/Contents/Developer"
+          else
+            echo "Requested Xcode not found; using default:"
+            xcode-select -p
+            xcodebuild -version
+          fi
 
       - name: Create canonical source directory
         run: |
           set -x
           sudo mkdir -p /Users/Shared
-          cp -R $GITHUB_WORKSPACE /Users/Shared/
-          mv /Users/Shared/$(basename $GITHUB_WORKSPACE) /Users/Shared/telegram-ios
+          sudo rm -rf /Users/Shared/telegram-ios
+          cp -R "$GITHUB_WORKSPACE" /Users/Shared/
+          mv /Users/Shared/$(basename "$GITHUB_WORKSPACE") /Users/Shared/telegram-ios
 
       - name: Build the App
+        id: build
         run: |
+          set -euo pipefail
           set -x
 
-          # source code paths are included in the final binary, so we need to make them stable across builds
           SOURCE_DIR=/Users/Shared/telegram-ios
-
-          # use canonical bazel root
           BAZEL_USER_ROOT="/private/var/tmp/_bazel_containerhost"
-
-          cd $SOURCE_DIR
+          cd "$SOURCE_DIR"
 
           BUILD_NUMBER_OFFSET="$(cat build_number_offset)"
+          APP_VERSION=$(python3 -c 'import json; print(json.load(open("versions.json"))["app"])')
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          COMMIT_COUNT=$((COMMIT_COUNT + BUILD_NUMBER_OFFSET))
+          BUILD_NUMBER="$COMMIT_COUNT"
+          RUN="${{ github.run_number }}"
 
-          export APP_VERSION=$(cat versions.json | python3 -c 'import json,sys;obj=json.load(sys.stdin);print(obj["app"]);')
-          export COMMIT_COUNT=$(git rev-list --count HEAD)
-          export COMMIT_COUNT="$(($COMMIT_COUNT+$BUILD_NUMBER_OFFSET))"
-          export BUILD_NUMBER="$COMMIT_COUNT"
-          echo "BUILD_NUMBER=$(echo $BUILD_NUMBER)" >> $GITHUB_ENV
-          echo "APP_VERSION=$(echo $APP_VERSION)" >> $GITHUB_ENV
+          IPA_NAME="Telegram-${APP_VERSION}-${BUILD_NUMBER}-build${RUN}.ipa"
+          DISPLAY="v${APP_VERSION}-${BUILD_NUMBER}-build${RUN}"
+          VERSION_DATE=$(date -u +%Y-%m-%d)
+
+          echo "APP_VERSION=${APP_VERSION}" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=${BUILD_NUMBER}" >> "$GITHUB_ENV"
+          echo "RUN=${RUN}" >> "$GITHUB_ENV"
+          echo "IPA_NAME=${IPA_NAME}" >> "$GITHUB_ENV"
+          echo "DISPLAY=${DISPLAY}" >> "$GITHUB_ENV"
+          echo "VERSION_DATE=${VERSION_DATE}" >> "$GITHUB_ENV"
+
+          echo "version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "build=${BUILD_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "ipa_name=${IPA_NAME}" >> "$GITHUB_OUTPUT"
+          echo "display=${DISPLAY}" >> "$GITHUB_OUTPUT"
+          echo "version_date=${VERSION_DATE}" >> "$GITHUB_OUTPUT"
 
           python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
           python3 -u build-system/Make/Make.py \
@@ -58,52 +102,150 @@ jobs:
             --configuration=release_arm64 \
             --buildNumber="$BUILD_NUMBER"
 
-          # collect ipa
           OUTPUT_PATH="build/artifacts"
           rm -rf "$OUTPUT_PATH"
           mkdir -p "$OUTPUT_PATH"
-          for f in bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa; do
-            cp "$f" $OUTPUT_PATH/
-          done
 
-          # collect dsym
+          IPA_SRC=""
+          for f in bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa; do
+            if [ -f "$f" ]; then
+              IPA_SRC="$f"
+              break
+            fi
+          done
+          if [ -z "$IPA_SRC" ]; then
+            echo "ERROR: Telegram.ipa not found under bazel-out"
+            find bazel-out -name '*.ipa' 2>/dev/null | head -20 || true
+            exit 1
+          fi
+
+          cp "$IPA_SRC" "$OUTPUT_PATH/Telegram.ipa"
+          cp "$IPA_SRC" "$OUTPUT_PATH/${IPA_NAME}"
+          # also copy next to workspace for release step convenience
+          cp "$OUTPUT_PATH/${IPA_NAME}" "$GITHUB_WORKSPACE/${IPA_NAME}"
+
           mkdir -p build/DSYMs
           for f in bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/*.dSYM; do
-            cp -R "$f" build/DSYMs/
+            [ -e "$f" ] && cp -R "$f" build/DSYMs/ || true
           done
-          zip -r "./$OUTPUT_PATH/Telegram.DSYMs.zip" build/DSYMs 1>/dev/null
+          if [ -d build/DSYMs ] && [ "$(ls -A build/DSYMs 2>/dev/null)" ]; then
+            zip -r "./$OUTPUT_PATH/Telegram.DSYMs.zip" build/DSYMs 1>/dev/null
+            cp "./$OUTPUT_PATH/Telegram.DSYMs.zip" "$GITHUB_WORKSPACE/Telegram.DSYMs.zip" || true
+          fi
 
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ls -lh "$OUTPUT_PATH"
+          ls -lh "$GITHUB_WORKSPACE/${IPA_NAME}"
+
+      - name: Upload IPA artifact
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: build-${{ env.BUILD_NUMBER }}
-          release_name: Telegram ${{ env.APP_VERSION }} (${{ env.BUILD_NUMBER }})
-          body: |
-            An unsigned build of Telegram for iOS ${{ env.APP_VERSION }} (${{ env.BUILD_NUMBER }})
+          name: ${{ env.IPA_NAME }}
+          path: ${{ github.workspace }}/${{ env.IPA_NAME }}
+          if-no-files-found: error
+
+      - name: Generate release notes
+        run: |
+          set -euo pipefail
+          DATE="${{ env.VERSION_DATE }}"
+          DISPLAY="${{ env.DISPLAY }}"
+          git fetch --tags --force origin 2>/dev/null || true
+          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+          if [ -z "$PREV" ]; then
+            PREV=$(git tag -l 'v*' --sort=-creatordate | sed -n '2p' || true)
+          fi
+          if [ -n "$PREV" ]; then
+            RANGE="${PREV}..HEAD"
+          else
+            RANGE="HEAD~30..HEAD"
+          fi
+          LOG=$(git log --pretty=format:'- %s' "$RANGE" 2>/dev/null \
+            | grep -Ev '^(docs:|ci:)' || true)
+          if [ -z "$LOG" ]; then
+            LOG="- Build ${DISPLAY}"
+          fi
+          {
+            echo "## Telegram ${DISPLAY} — ${DATE}"
+            echo ""
+            echo "Unsigned IPA for sideloading (SideStore / AltStore)."
+            echo ""
+            echo "### Changes"
+            echo ""
+            echo "$LOG"
+          } > /tmp/release_notes.md
+          cat /tmp/release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.DISPLAY }}
+          name: Telegram ${{ env.DISPLAY }}
+          body_path: /tmp/release_notes.md
+          files: |
+            ${{ github.workspace }}/${{ env.IPA_NAME }}
           draft: false
           prerelease: false
-
-      - name: Upload Release IPA
-        id: upload-release-ipa 
-        uses: actions/upload-release-asset@v1
+          target_commitish: ${{ steps.ref.outputs.sha }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /Users/Shared/telegram-ios/build/artifacts/Telegram.ipa
-          asset_name: Telegram.ipa
-          asset_content_type: application/zip
 
-      - name: Upload Release DSYM
-        id: upload-release-dsym 
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /Users/Shared/telegram-ios/build/artifacts/Telegram.DSYMs.zip
-          asset_name: Telegram.DSYMs.zip
-          asset_content_type: application/zip
+      - name: Update sidestore-apps.json
+        run: |
+          set -euo pipefail
+          python3 << 'PY'
+          import json, os
+          from pathlib import Path
+
+          path = Path("sidestore-apps.json")
+          if path.exists():
+              data = json.loads(path.read_text())
+          else:
+              data = {"apps": []}
+
+          app_version = os.environ["APP_VERSION"]
+          build_number = os.environ["BUILD_NUMBER"]
+          run = os.environ["RUN"]
+          ipa_name = os.environ["IPA_NAME"]
+          version_date = os.environ["VERSION_DATE"]
+          display = os.environ["DISPLAY"]
+
+          entry = {
+              "file": ipa_name,
+              "bundleIdentifier": "ph.telegra.Telegraph",
+              "name": "Telegram",
+              "developerName": "zongai",
+              "subtitle": "Telegram for iOS (unsigned GitHub build)",
+              "localizedDescription": "Telegram messenger with custom features: message auto-translate, content filter (ads/blacklist), multi-thread download and cache cleanup.",
+              "iconURL": "https://raw.githubusercontent.com/zongai/Telegram/main/Telegram/WatchApp/tgwatch%20Watch%20App/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
+              "tintColor": "2AABEE",
+              "version": f"{app_version}.{build_number}",
+              "versionDate": version_date,
+              "versionDescription": f"GitHub Actions build {display}",
+              "minOSVersion": "14.0",
+          }
+
+          apps = data.get("apps") or []
+          # replace same bundle id or prepend
+          apps = [a for a in apps if a.get("bundleIdentifier") != entry["bundleIdentifier"]]
+          apps.insert(0, entry)
+          data["apps"] = apps
+          path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+          print(path.read_text())
+          PY
+
+      - name: Commit sidestore-apps.json
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sidestore-apps.json
+          if git diff --staged --quiet; then
+            echo "No sidestore-apps.json changes"
+            exit 0
+          fi
+          git commit -m "ci: update sidestore-apps.json for ${{ env.DISPLAY }}"
+          # push to default branch tip (may fail if race; non-fatal)
+          BRANCH="${{ github.event.repository.default_branch }}"
+          if [ -z "$BRANCH" ]; then BRANCH="main"; fi
+          git pull --rebase origin "$BRANCH" || true
+          git push origin "HEAD:${BRANCH}"

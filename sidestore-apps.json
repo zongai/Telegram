@@ -1,0 +1,18 @@
+{
+  "apps": [
+    {
+      "file": "Telegram-13.1.1-0.ipa",
+      "bundleIdentifier": "ph.telegra.Telegraph",
+      "name": "Telegram",
+      "developerName": "zongai",
+      "subtitle": "Telegram for iOS (unsigned GitHub build)",
+      "localizedDescription": "Telegram messenger with custom features: message auto-translate, content filter (ads/blacklist), multi-thread download and cache cleanup.",
+      "iconURL": "https://raw.githubusercontent.com/zongai/Telegram/main/Telegram/WatchApp/tgwatch%20Watch%20App/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
+      "tintColor": "2AABEE",
+      "version": "13.1.1",
+      "versionDate": "2026-10-29",
+      "versionDescription": "Pipeline placeholder — replaced by CI after each successful build",
+      "minOSVersion": "14.0"
+    }
+  ]
+}
